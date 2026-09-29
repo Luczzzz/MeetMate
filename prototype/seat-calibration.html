@@ -143,7 +143,7 @@
             <button class="btn subtle" id="resetBtn">清空重来</button>
             <button class="btn hidden" id="finishPolygonBtn">完成当前区域</button>
             <button class="btn" id="verifyBtn">叠加核对</button>
-            <button class="btn primary" id="exportBtn">导出配置 JSON</button>
+            <button class="btn primary" id="exportBtn" disabled>导出配置 JSON</button>
           </div>
         </div>
       </div>
@@ -186,10 +186,10 @@
     const variants = {
       A: { name: '拖拽矩形', description: '适合大多数正视固定机位：拖拽一个矩形即可快速圈定 Seat。原型会把矩形规范化为四点 polygon。', hint: '拖动鼠标圈出一个 Seat 区域；松开后自动命名。', note: '拖动鼠标圈出一个 Seat 区域', title: '标定画面 · 矩形模式' },
       B: { name: '点击多边形', description: '适合斜拍或座位边界不规则的画面：依次点击角点，再点击“完成当前区域”闭合 polygon。', hint: '依次点击区域角点；点击“完成当前区域”结束。', note: '点击角点，再点击“完成当前区域”', title: '标定画面 · 多边形模式' },
-      C: { name: '规则网格', description: '适合座位排列规整的会议室：先拖出一块区域，再用列数快速生成等宽 Seat，仍可逐个删除核对。', hint: '拖出整体区域后，选择列数生成多个 Seat。', note: '拖动圈出整排座位，松开后生成网格', title: '标定画面 · 网格辅助模式' }
+      C: { name: '规则网格（MVP 默认）', description: 'MVP 默认方式：拖出一整排座位区域，输入这一排的 Seat 数，自动生成等宽区域；可逐排重复，也可删除单个 Seat 后重新标定。不提供单个边界拖拽编辑，先保证标定足够快。', hint: '拖出整排区域 → 输入这一排的 Seat 数；可连续标定多排。', note: '拖动圈出整排座位，松开后生成网格', title: '标定画面 · 规则网格（默认）' }
     };
     const params = new URLSearchParams(location.search);
-    let variant = ['A', 'B', 'C'].includes(params.get('variant')) ? params.get('variant') : 'A';
+    let variant = ['A', 'B', 'C'].includes(params.get('variant')) ? params.get('variant') : 'C';
     let seats = [];
     let currentPoints = [];
     let isDrawing = false;
@@ -213,6 +213,7 @@
       document.querySelector('#stageNote').textContent = variants[variant].note;
       document.querySelector('#canvasTitle').textContent = variants[variant].title;
       document.querySelector('#verifyBtn').textContent = '叠加核对';
+      document.querySelector('#exportBtn').disabled = true;
       document.querySelector('#finishPolygonBtn').classList.toggle('hidden', variant !== 'B');
       document.querySelector('#verifyState').textContent = '待核对';
       document.querySelector('#stepVerify').className = 'step';
@@ -229,17 +230,36 @@
     }
     function addSeat(points) {
       if (points.length < 3) return;
-      seats.push({ id: `S${String(seats.length + 1).padStart(2, '0')}`, points, color: palette[seats.length % palette.length] });
+      seats.push({ id: '', points, color: palette[0] });
       currentPoints = [];
+      renumber();
       document.querySelector('#checkCount').classList.toggle('done', seats.length >= 1);
       renderList(); render();
+    }
+    function centroid(points) {
+      return { x: points.reduce((s, p) => s + p.x, 0) / points.length, y: points.reduce((s, p) => s + p.y, 0) / points.length };
+    }
+    // 编号规则：先按画面纵坐标分行（同一排视为一行），再按横坐标从左到右。
+    function renumber() {
+      const rowTolerance = canvas.height * 0.08;
+      seats.sort((a, b) => {
+        const ca = centroid(a.points), cb = centroid(b.points);
+        return Math.abs(ca.y - cb.y) > rowTolerance ? ca.y - cb.y : ca.x - cb.x;
+      });
+      seats.forEach((seat, i) => { seat.id = `S${String(i + 1).padStart(2, '0')}`; seat.color = palette[i % palette.length]; });
     }
     function rectPoints(a, b) {
       return [{ x: a.x, y: a.y }, { x: b.x, y: a.y }, { x: b.x, y: b.y }, { x: a.x, y: b.y }];
     }
     function removeSeat(index) {
       seats.splice(index, 1);
-      seats.forEach((seat, i) => seat.id = `S${String(i + 1).padStart(2, '0')}`);
+      renumber();
+      verifyMode = false;
+      document.querySelector('#verifyState').textContent = '待核对';
+      document.querySelector('#checkOverlay').classList.remove('done');
+      document.querySelector('#stepVerify').className = 'step active';
+      document.querySelector('#stepSave').className = 'step';
+      document.querySelector('#exportBtn').disabled = true;
       renderList(); render();
       toast('已删除该 Seat，可重新标定');
     }
@@ -324,11 +344,13 @@
       document.querySelector('#checkOverlay').classList.toggle('done', verifyMode);
       document.querySelector('#stepVerify').className = verifyMode ? 'step done' : 'step active';
       document.querySelector('#stepSave').className = verifyMode ? 'step active' : 'step';
+      document.querySelector('#exportBtn').disabled = !verifyMode;
       renderList(); render();
     });
-    document.querySelector('#resetBtn').addEventListener('click', () => { seats = []; currentPoints = []; verifyMode = false; document.querySelector('#checkOverlay').classList.remove('done'); document.querySelector('#verifyState').textContent = '待核对'; renderList(); render(); toast('已清空，可重新开始'); });
+    document.querySelector('#resetBtn').addEventListener('click', () => { seats = []; currentPoints = []; verifyMode = false; document.querySelector('#checkOverlay').classList.remove('done'); document.querySelector('#verifyState').textContent = '待核对'; document.querySelector('#exportBtn').disabled = true; renderList(); render(); toast('已清空，可重新开始'); });
     document.querySelector('#exportBtn').addEventListener('click', () => {
       if (!seats.length) { toast('请先标定 Seat'); return; }
+      if (!verifyMode) { toast('请先完成叠加核对'); return; }
       const config = { version: 1, camera_id: 'meeting-room-a', frame_size: [1920, 1080], calibrated_at: new Date().toISOString(), seats: seats.map(s => ({ id: s.id, polygon: normalized(s.points) })) };
       const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'seat-calibration.meeting-room-a.json'; a.click(); URL.revokeObjectURL(a.href); document.querySelector('#stepSave').className = 'step done'; toast('配置已导出：seat-calibration.meeting-room-a.json');
     });
