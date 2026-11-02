@@ -1,0 +1,11 @@
+{
+  "source": "真实场景2.jpg",
+  "imgsz": 1920,
+  "conf": 0.25,
+  "kp_thr": 0.3,
+  "frames": 1,
+  "persons_usable": 25,
+  "latency_ms_mean": 1419.5,
+  "latency_ms_p95": 1419.5,
+  "det_per_frame_mean": 25.0
+}

@@ -1,0 +1,7 @@
+# 真实场景照片 / 效果图只在本地，不入库（隐私 + 体积）
+/真实场景*.jpg
+prototype/**/artifacts/*.jpg
+prototype/**/artifacts/*.png
+*.mp4
+*.avi
+*.mov
